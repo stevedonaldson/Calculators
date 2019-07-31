@@ -1,15 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Calculator
 {
-	public struct BenchmarkData
-	{
-		public decimal[] Bench1 { get; set; }
-		public decimal[] Bench2 { get; set; }
-	}
-
 	public static class Helpers
 	{
 		//public static long CalculateSum(int[] nums)
@@ -174,17 +169,6 @@ namespace Calculator
 						output[index - 1] = input[index] / input[index - 1] - 1;
 				});
 		}
-		public static decimal[] CalculateRendementNoAsync(decimal[] x)
-		{
-			return CalculateWithFrameInit(
-				x,
-				(input) => new decimal[input.Length - 1],
-				(index, input, output) =>
-				{
-					if (index != 0)
-						output[index - 1] = input[index] / input[index - 1] - 1;
-				});
-		}
 
 		public static async Task<decimal[]> Extrapolate(decimal[] lessData, decimal[] baseLine)
 		{
@@ -220,30 +204,28 @@ namespace Calculator
 			return finalResult;
 		}
 
-		//public static decimal[] ExtrapolateNoAsync(decimal[] lessData, decimal[] baseLine)
-		//{
-		//	var gapLength = allData.Length - lessData.Length;
+		public static async Task<decimal[]> ExtrapolateNew(decimal[] lessData, decimal[] baseLine)
+		{
+			var gapLength = baseLine.Length - lessData.Length;
 
-		//	var constituentIncrements = CalculateRendementNoAsync(lessData);
-		//	var proxyIncrements = CalculateRendementNoAsync(allData);
+			if (gapLength < 0)
+				throw new Exception("Baseline length cannot be less then length of LessData");
 
-		//	var proxyIncrementsSection = new Span<decimal>(proxyIncrements, gapLength, proxyIncrements.Length - gapLength).ToArray();
-		//	var slope = CalculateSlopeNoAsync(proxyIncrementsSection, constituentIncrements);
+			// No extrapolation needed
+			if (gapLength == 0)
+				return lessData;
 
-		//	var constituentIncrementsGaps = new decimal[gapLength];
-		//	for (int i = 0; i < gapLength; i++)
-		//		constituentIncrementsGaps[i] = proxyIncrements[i] * slope;
+			var baseLineIncrementsSection = new Span<decimal>(baseLine, gapLength, baseLine.Length - gapLength).ToArray();
+			var slope = await CalculateSlope(baseLineIncrementsSection, lessData);
 
-		//	var finalResult = new decimal[allData.Length];
-		//	Array.Copy(lessData, 0, finalResult, gapLength, allData.Length - gapLength);
+			var gaps = new decimal[gapLength];
+			for (int i = 0; i < gapLength; i++)
+				gaps[i] = baseLine[i] * slope;
 
-		//	for (int i = constituentIncrementsGaps.Length - 1; i > -1; i--)
-		//		finalResult[i] = finalResult[i + 1] / (1 + constituentIncrementsGaps[i]);
+			return gaps;
+		}
 
-		//	return finalResult;
-		//}
-
-		public static async Task<BenchmarkData> Benchmark(decimal[] constituent1, decimal[] constituent2, decimal[] baseline, decimal[] exchangeRate)
+		public static async Task<BenchmarkResponse> Benchmark(decimal[] constituent1, decimal[] constituent2, decimal[] baseline, decimal[] exchangeRate)
 		{
 			Task<decimal[]> extrapolateTask = null;
 			decimal[] newConstituent2 = null;
@@ -277,7 +259,7 @@ namespace Calculator
 			var constituent2Adjustment = await constituent2AdjustmentTask;
 			var constituent2BenchTask = GetBench(constituent2Adjustment);
 
-			return new BenchmarkData
+			return new BenchmarkResponse
 			{
 				Bench1 = await constituent1BenchTask,
 				Bench2 = await constituent2BenchTask
@@ -298,6 +280,152 @@ namespace Calculator
 
 				return bench;
 			});
+		}
+
+		//------------------------------------------------------------------------------------------------------------------------------------------------
+
+		public static async Task<BenchmarkResponse> DoMain(BenchmarkRequest request)
+		{
+			var taskDictionary = new Dictionary<string, object>();
+
+			var task0 = CalculateAdjustmentLevel(new AdjustmentLevelRequest
+			{
+				AssetClassLeverageLongTermTargetLTV = request.AssetClassLeverageLongTermTargetLTV,
+				AssetClassLeverageLTVImpliedInProxies = request.AssetClassLeverageLTVImpliedInProxies
+			});
+			taskDictionary.Add("AdjustmentLevel", task0);
+
+			var task1 = CalculateIndexIncrements(new IndexIncrementsRequest
+			{
+				Data = request.IndexProxy
+			});
+			taskDictionary.Add("IndexIncrements", task1);
+
+			var task2 = BenchmarkExtrapolateHistory(new BenchmarkExtrapolateHistoryRequest
+			{
+				Tasks = taskDictionary,
+				Constituent = request.Constituent2,
+				Index = request.IndexProxy
+			});
+			taskDictionary.Add("BenchmarkExtrapolateHistory", task2);
+
+			var task3 = CalculateLocalBenchmark(new LocalBenchmarkRequest
+			{
+				Tasks = taskDictionary,
+				Constituent1 = request.Constituent1,
+				Const1Weight = request.Const1Weight,
+				Const2Weight = request.Const2Weight
+			});
+			taskDictionary.Add("LocalBenchmark", task3);
+
+			var task4 = CalculateBenchmarkLevel(new BenchmarkLevelRequest
+			{
+				Tasks = taskDictionary,
+				Constituent1 = request.Constituent1,
+				FxRate = request.FXRate
+			});
+			taskDictionary.Add("BenchmarkLevel", task4);
+
+
+
+			var response3 = await task3;
+			var response4 = await task4;
+
+			return new BenchmarkResponse
+			{
+				Bench1 = response4.Constituent1,
+				Bench2 = request.Constituent2
+			};
+		}
+
+		private static async Task<IndexIncrementsResponse> CalculateIndexIncrements(IndexIncrementsRequest request)
+		{
+			var response = new IndexIncrementsResponse
+			{
+				PercentIncrements = await CalculateRendement(request.Data)
+			};
+
+			return response;
+		}
+
+		private static Task<AdjustmentLevelResponse> CalculateAdjustmentLevel(AdjustmentLevelRequest request)
+		{
+			return Task.FromResult(new AdjustmentLevelResponse
+			{
+				AdjustmentLevel = (1 - request.AssetClassLeverageLTVImpliedInProxies) / (1 - request.AssetClassLeverageLongTermTargetLTV)
+			});
+		}
+
+		private static async Task<BenchmarkExtrapolateHistoryResponse> BenchmarkExtrapolateHistory(BenchmarkExtrapolateHistoryRequest request)
+		{
+			var constIncrementTask = CalculateRendement(request.Constituent);
+			var indexIncrement = (await (request.Tasks["IndexIncrements"] as Task<IndexIncrementsResponse>)).PercentIncrements;
+			var constIncrement = await constIncrementTask;
+
+			var extrapolated = await ExtrapolateNew(constIncrement, indexIncrement);
+
+			var finalResult = new decimal[request.Index.Length];
+			Array.Copy(request.Constituent, 0, finalResult, extrapolated.Length, finalResult.Length - extrapolated.Length);
+
+			for (int i = extrapolated.Length - 1; i > -1; i--)
+				finalResult[i] = finalResult[i + 1] / (1 + extrapolated[i]);
+
+			return new BenchmarkExtrapolateHistoryResponse
+			{
+				Constituent = finalResult
+			};
+		}
+
+		private static async Task<LocalBenchmarkResponse> CalculateLocalBenchmark(LocalBenchmarkRequest request)
+		{
+			var constituent1 = request.Constituent1;
+			var constituent2 = (await (request.Tasks["BenchmarkExtrapolateHistory"] as Task<BenchmarkExtrapolateHistoryResponse>)).Constituent;
+			var const1Weight = request.Const1Weight;
+			var const2Weight = request.Const2Weight;
+
+			var response = new LocalBenchmarkResponse
+			{
+				Data = await CalculateWithFrameInitAsync(
+					constituent1,
+					(input) => new decimal[input.Length - 1],
+					(index, input, output) =>
+					{
+						if (index != 0)
+							output[index - 1] = (input[index] / input[index - 1] - 1) * const1Weight + (constituent2[index] / constituent2[index - 1] - 1) * const2Weight;
+					})
+			};
+
+			return response;
+		}
+
+		private static async Task<BenchmarkLevelResponse> CalculateBenchmarkLevel(BenchmarkLevelRequest request)
+		{
+			var constituent1 = request.Constituent1;
+			var constituent2 = (await (request.Tasks["BenchmarkExtrapolateHistory"] as Task<BenchmarkExtrapolateHistoryResponse>)).Constituent;
+			var fxRate = request.FxRate;
+
+			var const1IncrementTask = CalculateRendement(constituent1);
+			var const2Converted = await CalculateWithFrameAsync<decimal, decimal>(constituent2, (i, input, output) => output[i] = input[i] * fxRate[i]);
+
+			var const2Increment = await CalculateRendement(const2Converted);
+			var const1Increment = await const1IncrementTask;
+
+			var adjustmentLevel = (await (request.Tasks["AdjustmentLevel"] as Task<AdjustmentLevelResponse>)).AdjustmentLevel;
+
+			var const1AdjustmentTask = CalculateWithFrameAsync<decimal, decimal>(const1Increment, (i, input, output) => output[i] = input[i] * adjustmentLevel);
+			var const2AdjustmentTask = CalculateWithFrameAsync<decimal, decimal>(const2Increment, (i, input, output) => output[i] = input[i] * adjustmentLevel);
+
+			var const1Adjustment = await const1AdjustmentTask;
+			var const1BenchTask = GetBench(const1Adjustment);
+
+			var const2Adjustment = await const2AdjustmentTask;
+			var const2BenchTask = GetBench(const2Adjustment);
+
+			return new BenchmarkLevelResponse
+			{
+				Constituent1 = await const1BenchTask,
+				Constituent2 = await const2BenchTask
+			};
 		}
 	}
 }

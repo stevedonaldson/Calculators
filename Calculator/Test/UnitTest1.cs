@@ -87,5 +87,23 @@ namespace Test
 			Assert.AreEqual(82.99126372278804874673762891M, result.Bench2[1826]);
 			Assert.AreEqual(155154.71821690021060872539273M, sum2);
 		}
+
+		[TestMethod]
+		public void Test_DoMain()
+		{
+			var request = new BenchmarkRequest
+			{
+				Constituent1 = _reader.ReadResource("Test.Resource.Constituent1.txt").Array1,
+				Constituent2 = _reader.ReadResource("Test.Resource.ConstituentExtrapolate.txt").Array1,
+				IndexProxy = _reader.ReadResource("Test.Resource.ProxyExtrapolate.txt").Array1,
+				FXRate = _reader.ReadResource("Test.Resource.FxRate.txt").Array1,
+				Const1Weight = 0.6M,
+				Const2Weight = 0.4M,
+				AssetClassLeverageLongTermTargetLTV = 0.525M,
+				AssetClassLeverageLTVImpliedInProxies = 0.5M
+			};
+
+			var result = Helpers.DoMain(request).Result;
+		}
 	}
 }
