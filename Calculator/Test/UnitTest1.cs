@@ -104,6 +104,26 @@ namespace Test
 			};
 
 			var result = Helpers.DoMain(request).Result;
+
+			var sum1 = result.Bench1.Sum();
+			var sum2 = result.Bench2.Sum();
+
+			Assert.AreEqual(1827, result.Bench1.Length);
+			Assert.AreEqual(1827, result.Bench2.Length);
+
+			Assert.AreEqual(100M, result.Bench1[0]);
+			Assert.AreEqual(102.01260179936821023510537295M, result.Bench1[1]);
+			Assert.AreEqual(102.28569387136973135806175615M, result.Bench1[2]);
+			Assert.AreEqual(60.613395807105584389034344311M, result.Bench1[1825]);
+			Assert.AreEqual(58.083916956257370307665124339M, result.Bench1[1826]);
+			Assert.AreEqual(128700.71734227535247154670352M, sum1);
+
+			Assert.AreEqual(100M, result.Bench2[0]);
+			Assert.AreEqual(99.65084634755699301704409669M, result.Bench2[1]);
+			Assert.AreEqual(98.47090088900808479798186066M, result.Bench2[2]);
+			Assert.AreEqual(87.17968565685839338007814813M, result.Bench2[1825]);
+			Assert.AreEqual(82.99126372590390566556216151M, result.Bench2[1826]);
+			Assert.AreEqual(155154.71822011685792957086427M, sum2);
 		}
 	}
 }

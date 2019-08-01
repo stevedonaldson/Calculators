@@ -334,7 +334,7 @@ namespace Calculator
 			return new BenchmarkResponse
 			{
 				Bench1 = response4.Constituent1,
-				Bench2 = request.Constituent2
+				Bench2 = response4.Constituent2
 			};
 		}
 
