@@ -125,5 +125,12 @@ namespace Test
 			Assert.AreEqual(82.99126372590390566556216151M, result.Bench2[1826]);
 			Assert.AreEqual(155154.71822011685792957086427M, sum2);
 		}
+
+		[TestMethod]
+		public void Test_Orchestrator()
+		{
+			var x = new TaskOrchestrator();
+			_ = x.Launch().Result;
+		}
 	}
 }
